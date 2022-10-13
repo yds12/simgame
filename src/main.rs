@@ -1,7 +1,7 @@
-const SCREEN_SIZE: (u32, u32) = (100, 100);
-const TILE_SIZE: (u32, u32) = (8, 8);
+const SCREEN_SIZE: (u32, u32) = (307, 167);
+const TILE_SIZE: (u32, u32) = (4, 4);
 
-const BG_COLOR: (f32, f32, f32) = (0.0, 1.0, 0.0);
+const BG_COLOR: (f32, f32, f32) = (1.0, 0.0, 1.0);
 
 enum Terrain {
     Grass,
@@ -58,7 +58,7 @@ impl ggez::event::EventHandler for GameState {
         );
 
         for (index, cell) in self.map.iter().enumerate() {
-            let pos = (index as u32 / SCREEN_SIZE.0, index as u32 % SCREEN_SIZE.1);
+            let pos = (index as u32 % SCREEN_SIZE.0, index as u32 / SCREEN_SIZE.0);
             let color = cell.color();
             canvas.draw(
                 &ggez::graphics::Quad,
