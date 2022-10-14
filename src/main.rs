@@ -1,4 +1,4 @@
-const SCREEN_SIZE: (usize, usize) = (307, 167);
+const SCREEN_SIZE: (usize, usize) = (307, 161);
 const TILE_SIZE: (usize, usize) = (4, 4);
 
 const BG_COLOR: (f32, f32, f32) = (1.0, 0.0, 1.0);
@@ -13,29 +13,29 @@ const fn get_index(x: usize, y: usize) -> usize {
     y * SCREEN_SIZE.0 + x
 }
 
-fn get_neighbor_coords(x: usize, y: usize) -> Vec<(usize, usize)> {
+fn prob(p: f64) -> bool {
+    use rand::prelude::*;
+    let val = rand::thread_rng().gen_range(0..1000) as f64 / 1000.0;
+
+    val < p
+}
+
+fn rand_index(size: usize) -> usize {
+    use rand::prelude::*;
+    rand::thread_rng().gen_range(0..size)
+}
+
+fn get_cross_neighbor_coords(x: usize, y: usize) -> Vec<(usize, usize)> {
     let mut neighs = Vec::new();
 
     if x > 0 {
         neighs.push((x - 1, y));
     }
-    if x > 0 && y > 0 {
-        neighs.push((x - 1, y - 1));
-    }
-    if x > 0 && y < SCREEN_SIZE.1 - 1 {
-        neighs.push((x - 1, y + 1));
-    }
     if y > 0 {
         neighs.push((x, y - 1));
     }
-    if x < SCREEN_SIZE.0 - 1 && y > 0 {
-        neighs.push((x + 1, y - 1));
-    }
     if x < SCREEN_SIZE.0 - 1 {
         neighs.push((x + 1, y));
-    }
-    if x < SCREEN_SIZE.0 - 1 && y < SCREEN_SIZE.1 - 1 {
-        neighs.push((x + 1, y + 1));
     }
     if y < SCREEN_SIZE.1 - 1 {
         neighs.push((x, y + 1));
@@ -44,11 +44,31 @@ fn get_neighbor_coords(x: usize, y: usize) -> Vec<(usize, usize)> {
     neighs
 }
 
+fn get_neighbor_coords(x: usize, y: usize) -> Vec<(usize, usize)> {
+    let mut neighs = get_cross_neighbor_coords(x, y);
+
+    if x > 0 && y > 0 {
+        neighs.push((x - 1, y - 1));
+    }
+    if x > 0 && y < SCREEN_SIZE.1 - 1 {
+        neighs.push((x - 1, y + 1));
+    }
+    if x < SCREEN_SIZE.0 - 1 && y > 0 {
+        neighs.push((x + 1, y - 1));
+    }
+    if x < SCREEN_SIZE.0 - 1 && y < SCREEN_SIZE.1 - 1 {
+        neighs.push((x + 1, y + 1));
+    }
+
+    neighs
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Person;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Terrain {
-    Grass,
+    Land,
     Resource,
     Water,
 }
@@ -69,10 +89,19 @@ impl From<Terrain> for MapCell {
 
 impl MapCell {
     pub fn color(&self) -> ggez::graphics::Color {
-        match self.terrain {
-            Terrain::Grass => ggez::graphics::Color::new(0.2, 0.4, 0.0, 1.0),
-            Terrain::Resource => ggez::graphics::Color::new(0.5, 0.25, 0.0, 1.0),
-            Terrain::Water => ggez::graphics::Color::new(0.3, 0.7, 1.0, 1.0),
+        if self.pop.len() == 0 {
+            match self.terrain {
+                Terrain::Resource => ggez::graphics::Color::new(0.4, 0.8, 0.0, 1.0),
+                Terrain::Land => ggez::graphics::Color::new(0.7, 0.55, 0.0, 1.0),
+                Terrain::Water => ggez::graphics::Color::new(0.3, 0.7, 1.0, 1.0),
+            }
+        } else {
+            let interp = match self.pop.len() {
+                pop if (pop as f64).log(10.0) < 10.0 => (pop as f64).log(10.0) as f32 * 0.1,
+                _ => 1.0
+            };
+
+            ggez::graphics::Color::new(1.0 - interp, 0.0, interp, 1.0)
         }
     }
 }
@@ -88,7 +117,7 @@ impl GameState {
             map: (0..SCREEN_SIZE.0 * SCREEN_SIZE.1)
                 .map(|_| {
                     match rand::thread_rng().gen_range(0..3) {
-                        0 => Terrain::Grass,
+                        0 => Terrain::Land,
                         1 => Terrain::Resource,
                         2 => Terrain::Water,
                         _ => unreachable!(),
@@ -101,8 +130,23 @@ impl GameState {
         for _ in 0..SMOOTHING {
             state.smoothen();
         }
+        state.populate();
 
         state
+    }
+
+    fn populate(&mut self) {
+        use rand::prelude::*;
+        let mut rng = rand::thread_rng();
+
+        for cell in &mut self.map {
+            if cell.terrain == Terrain::Resource && prob(0.005) {
+                cell.pop = (0..rng.gen_range(0..10000)).map(|_| Person).collect();
+            }
+            else if cell.terrain == Terrain::Land && prob(0.001) {
+                cell.pop = (0..rng.gen_range(0..1000)).map(|_| Person).collect();
+            }
+        }
     }
 
     fn smoothen(&mut self) {
@@ -128,7 +172,7 @@ impl GameState {
 
         for neigh in neighs {
             match neigh {
-                Terrain::Grass => counts.0 += 1,
+                Terrain::Land => counts.0 += 1,
                 Terrain::Resource => counts.1 += 1,
                 Terrain::Water => counts.2 += 1,
             }
@@ -137,14 +181,14 @@ impl GameState {
         // TODO: improve this
         match counts {
             (g, r, w) if w == g && w == r => {
-                vec![Terrain::Water, Terrain::Resource, Terrain::Grass]
+                vec![Terrain::Water, Terrain::Resource, Terrain::Land]
             }
             (g, r, w) if w > g && w == r => vec![Terrain::Water, Terrain::Resource],
-            (g, r, w) if w > r && w == g => vec![Terrain::Water, Terrain::Grass],
+            (g, r, w) if w > r && w == g => vec![Terrain::Water, Terrain::Land],
             (g, r, w) if w > g && w > r => vec![Terrain::Water],
-            (g, r, _) if r == g => vec![Terrain::Grass, Terrain::Resource],
+            (g, r, _) if r == g => vec![Terrain::Land, Terrain::Resource],
             (g, r, _) if r > g => vec![Terrain::Resource],
-            _ => vec![Terrain::Grass],
+            _ => vec![Terrain::Land],
         }
     }
 
@@ -163,6 +207,47 @@ impl GameState {
 
 impl ggez::event::EventHandler for GameState {
     fn update(&mut self, ctx: &mut ggez::Context) -> Result<(), ggez::GameError> {
+        for index in 0..self.map.len() {
+            let pos = get_coord(index);
+            let neighs = get_cross_neighbor_coords(pos.0, pos.1);
+            let this_pop = self.map[index].pop.len();
+            let this_terr = self.map[index].terrain;
+
+            if this_pop > 0 {
+                if (this_terr == Terrain::Resource && prob(0.009)) ||
+                   (this_terr == Terrain::Land && prob(0.003)) { // grow
+                    let amount = (this_pop as f64 * 0.01) as usize;
+
+                    for _ in 0..amount {
+                        self.map[index].pop.push(Person);
+                    }
+                }
+                if prob(0.005) { // migrate
+                    let amount = (this_pop as f64 * 0.01) as usize;
+                    let neigh_pos = neighs[rand_index(neighs.len())];
+                    let neigh_ix = get_index(neigh_pos.0, neigh_pos.1);
+
+                    if self.map[neigh_ix].terrain != Terrain::Water {
+                        for _ in 0..amount {
+                            self.map[index].pop.pop();
+                            self.map[neigh_ix].pop.push(Person);
+                        }
+                    }
+                }
+                if (this_terr == Terrain::Resource && prob(0.008)) ||
+                   (this_terr == Terrain::Land && prob(0.004)) { // shrink
+                    let amount = match this_pop {
+                        p if p > 10 => (this_pop as f64 * 0.01) as usize,
+                        p => p
+                    };
+
+                    for _ in 0..amount {
+                        self.map[index].pop.pop();
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -190,6 +275,10 @@ impl ggez::event::EventHandler for GameState {
                 ),
                 color,
             )?;
+        }
+
+        if ggez::timer::ticks(ctx) % 60 == 0 {
+            println!("FPS: {}", ggez::timer::fps(ctx));
         }
 
         let mesh = ggez::graphics::Mesh::from_data(ctx, mesh.build());
