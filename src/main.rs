@@ -44,6 +44,8 @@ fn get_neighbor_coords(x: usize, y: usize) -> Vec<(usize, usize)> {
     neighs
 }
 
+struct Person;
+
 #[derive(Clone, Copy, Debug)]
 enum Terrain {
     Grass,
@@ -53,6 +55,16 @@ enum Terrain {
 
 struct MapCell {
     terrain: Terrain,
+    pop: Vec<Person>,
+}
+
+impl From<Terrain> for MapCell {
+    fn from(terrain: Terrain) -> Self {
+        Self {
+            terrain,
+            pop: Vec::new(),
+        }
+    }
 }
 
 impl MapCell {
@@ -74,13 +86,14 @@ impl GameState {
         use rand::prelude::*;
         let mut state = Self {
             map: (0..SCREEN_SIZE.0 * SCREEN_SIZE.1)
-                .map(|_| MapCell {
-                    terrain: match rand::thread_rng().gen_range(0..3) {
+                .map(|_| {
+                    match rand::thread_rng().gen_range(0..3) {
                         0 => Terrain::Grass,
                         1 => Terrain::Resource,
                         2 => Terrain::Water,
                         _ => unreachable!(),
-                    },
+                    }
+                    .into()
                 })
                 .collect(),
         };
@@ -117,13 +130,15 @@ impl GameState {
             match neigh {
                 Terrain::Grass => counts.0 += 1,
                 Terrain::Resource => counts.1 += 1,
-                Terrain::Water => counts.2 += 1
+                Terrain::Water => counts.2 += 1,
             }
         }
 
         // TODO: improve this
         match counts {
-            (g, r, w) if w == g && w == r => vec![Terrain::Water, Terrain::Resource, Terrain::Grass],
+            (g, r, w) if w == g && w == r => {
+                vec![Terrain::Water, Terrain::Resource, Terrain::Grass]
+            }
             (g, r, w) if w > g && w == r => vec![Terrain::Water, Terrain::Resource],
             (g, r, w) if w > r && w == g => vec![Terrain::Water, Terrain::Grass],
             (g, r, w) if w > g && w > r => vec![Terrain::Water],
@@ -152,27 +167,33 @@ impl ggez::event::EventHandler for GameState {
     }
 
     fn draw(&mut self, ctx: &mut ggez::Context) -> Result<(), ggez::GameError> {
-        // First we create a canvas that renders to the frame, and clear it to a (sort of) green color
+        use ggez::graphics::Drawable; // for Mesh::draw
+
         let mut canvas = ggez::graphics::Canvas::from_frame(
             ctx,
             ggez::graphics::CanvasLoadOp::Clear([BG_COLOR.0, BG_COLOR.1, BG_COLOR.2, 1.0].into()),
         );
 
+        let mut mesh = ggez::graphics::MeshBuilder::new();
+
         for (index, cell) in self.map.iter().enumerate() {
             let pos = get_coord(index);
             let color = cell.color();
-            canvas.draw(
-                &ggez::graphics::Quad,
-                ggez::graphics::DrawParam::new()
-                    .dest_rect(ggez::graphics::Rect::new(
-                        (pos.0 * TILE_SIZE.0) as f32,
-                        (pos.1 * TILE_SIZE.1) as f32,
-                        TILE_SIZE.0 as f32,
-                        TILE_SIZE.1 as f32,
-                    ))
-                    .color([color.r, color.g, color.b, color.a]),
-            );
+
+            mesh.rectangle(
+                ggez::graphics::DrawMode::fill(),
+                ggez::graphics::Rect::new(
+                    (pos.0 * TILE_SIZE.0) as f32,
+                    (pos.1 * TILE_SIZE.1) as f32,
+                    TILE_SIZE.0 as f32,
+                    TILE_SIZE.1 as f32,
+                ),
+                color,
+            )?;
         }
+
+        let mesh = ggez::graphics::Mesh::from_data(ctx, mesh.build());
+        canvas.draw(&mesh, ggez::graphics::DrawParam::new());
 
         // Finally, we "flush" the draw commands.
         // Since we rendered to the frame, we don't need to tell ggez to present anything else,
